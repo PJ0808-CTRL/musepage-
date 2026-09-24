@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import MusePageLogo from "@/app/components/MusePageLogo";
 import type { Metadata } from "next";
 import type { CSSProperties } from "react";
 import { createClient } from "@/lib/supabase-server";
@@ -8,6 +9,7 @@ import { FaInstagram, FaYoutube } from "react-icons/fa";
 
 import SocialAnalyticsLink from "@/app/components/SocialAnalyticsLink";
 import PublicBlock from "@/app/components/PublicBlock";
+import PageViewTracker from "@/app/components/PageViewTracker";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,6 +42,20 @@ type LinkItem = {
   schedule_end: string | null;
 
   open_new_tab?: boolean | null;
+
+  grid_x?: number | null;
+  grid_y?: number | null;
+  grid_width?: number | null;
+  grid_height?: number | null;
+
+  animation?:
+    | "none"
+    | "pulse"
+    | "bounce"
+    | "glow"
+    | "shake"
+    | "spotlight"
+    | null;
 };
 
 type Site = {
@@ -85,9 +101,19 @@ type Site = {
   twitter_image_url?: string | null;
   favicon_url?: string | null;
 
+  redirect_enabled?: boolean | null;
+  redirect_url?: string | null;
+
   allow_indexing?: boolean | null;
 
   canonical_url?: string | null;
+};
+
+type PositionedBlock = LinkItem & {
+  resolved_x: number;
+  resolved_y: number;
+  resolved_width: number;
+  resolved_height: number;
 };
 
 function getBaseSiteUrl() {
@@ -97,6 +123,97 @@ function getBaseSiteUrl() {
 function getGeneratedProfileUrl(username: string) {
   const baseUrl = getBaseSiteUrl();
   return baseUrl ? `${baseUrl}/${username}` : undefined;
+}
+
+function getFaviconUrl(site: Site) {
+  const url = site.favicon_url?.trim();
+  return url || undefined;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function resolveGridLayout(blocks: LinkItem[]) {
+  const hasCustomLayout = blocks.some((block) => {
+    const x = block.grid_x ?? 0;
+    const y = block.grid_y ?? 0;
+    const width = block.grid_width ?? 12;
+    const height = block.grid_height ?? 1;
+
+    return x !== 0 || y !== 0 || width !== 12 || height !== 1;
+  });
+
+  if (!hasCustomLayout) {
+    return {
+      hasCustomLayout: false,
+      blocks: blocks.map(
+        (block, index): PositionedBlock => ({
+          ...block,
+          resolved_x: 0,
+          resolved_y: index,
+          resolved_width: 12,
+          resolved_height: 1,
+        })
+      ),
+    };
+  }
+
+  let fallbackRow =
+    blocks.reduce((maxRow, block) => {
+      const y = block.grid_y ?? 0;
+      const height = block.grid_height ?? 1;
+      const isCustom =
+        (block.grid_x ?? 0) !== 0 ||
+        y !== 0 ||
+        (block.grid_width ?? 12) !== 12 ||
+        height !== 1;
+
+      return isCustom ? Math.max(maxRow, y + height) : maxRow;
+    }, 0) + 1;
+
+  const positioned = blocks.map((block): PositionedBlock => {
+    const rawWidth = block.grid_width ?? 12;
+    const width = clamp(rawWidth, 1, 12);
+
+    const rawX = block.grid_x ?? 0;
+    const x = clamp(rawX, 0, 12 - width);
+
+    const rawHeight = block.grid_height ?? 1;
+    const height = clamp(rawHeight, 1, 12);
+
+    const isDefault =
+      (block.grid_x ?? 0) === 0 &&
+      (block.grid_y ?? 0) === 0 &&
+      (block.grid_width ?? 12) === 12 &&
+      (block.grid_height ?? 1) === 1;
+
+    if (isDefault) {
+      const result = {
+        ...block,
+        resolved_x: 0,
+        resolved_y: fallbackRow,
+        resolved_width: 12,
+        resolved_height: 1,
+      };
+
+      fallbackRow += 2;
+      return result;
+    }
+
+    return {
+      ...block,
+      resolved_x: x,
+      resolved_y: Math.max(block.grid_y ?? 0, 0),
+      resolved_width: width,
+      resolved_height: height,
+    };
+  });
+
+  return {
+    hasCustomLayout: true,
+    blocks: positioned,
+  };
 }
 
 export async function generateMetadata({
@@ -210,11 +327,24 @@ export async function generateMetadata({
         : {}),
     },
 
-    ...(site.favicon_url?.trim()
+    ...(getFaviconUrl(site)
       ? {
           icons: {
-            icon: site.favicon_url.trim(),
-            shortcut: site.favicon_url.trim(),
+            icon: [
+              {
+                url: getFaviconUrl(site)!,
+              },
+            ],
+            shortcut: [
+              {
+                url: getFaviconUrl(site)!,
+              },
+            ],
+            apple: [
+              {
+                url: getFaviconUrl(site)!,
+              },
+            ],
           },
         }
       : {}),
@@ -249,16 +379,6 @@ export default async function PublicProfile({ params }: Props) {
 
   const site = siteData as Site;
 
-  const { error: pageViewError } = await supabase
-    .from("page_views")
-    .insert({
-      site_id: site.id,
-    });
-
-  if (pageViewError) {
-    console.error("PAGE VIEW ERROR:", pageViewError);
-  }
-
   const { data: linkData, error: linksError } = await supabase
     .from("links")
     .select("*")
@@ -274,13 +394,49 @@ export default async function PublicProfile({ params }: Props) {
 
   const now = new Date();
 
+  const redirectUrl =
+    site.redirect_enabled && site.redirect_url?.trim()
+      ? site.redirect_url.trim()
+      : null;
+
+  if (redirectUrl) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#F4F1EB] px-6 text-[#1C1A17]">
+        <PageViewTracker siteId={site.id} redirectUrl={redirectUrl} />
+
+        <div className="w-full max-w-md text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D9D1C6] bg-white/70 text-xl text-[#9B7442] shadow-sm">
+            ↗
+          </div>
+
+          <h1 className="mt-5 font-serif text-2xl">
+            Redirecting you…
+          </h1>
+
+          <p className="mt-2 text-sm leading-6 text-[#82786C]">
+            @{site.username} is sending you to another page.
+          </p>
+
+          <a
+            href={redirectUrl}
+            className="mt-6 inline-flex min-h-[44px] items-center justify-center rounded-xl bg-[#1C1A17] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#34302A]"
+          >
+            Continue now
+          </a>
+        </div>
+      </main>
+    );
+  }
+
   const visibleBlocks = ((linkData || []) as LinkItem[])
     .filter((block) => {
       const start = block.schedule_start
         ? new Date(block.schedule_start)
         : null;
 
-      const end = block.schedule_end ? new Date(block.schedule_end) : null;
+      const end = block.schedule_end
+        ? new Date(block.schedule_end)
+        : null;
 
       return (!start || now >= start) && (!end || now <= end);
     })
@@ -294,6 +450,9 @@ export default async function PublicProfile({ params }: Props) {
 
       return a.position - b.position;
     });
+
+  const { blocks: positionedBlocks, hasCustomLayout } =
+    resolveGridLayout(visibleBlocks);
 
   const generatedProfileUrl = getGeneratedProfileUrl(site.username);
 
@@ -344,31 +503,17 @@ export default async function PublicProfile({ params }: Props) {
 
   const jsonLd = JSON.stringify(personSchema).replace(/</g, "\\u003c");
 
-  const buttonRadius =
-    site.button_style === "pill"
-      ? "9999px"
-      : site.button_style === "square"
-      ? "4px"
-      : "14px";
-
-  const buttonShadow =
-    site.button_shadow === false
-      ? "none"
-      : "0 10px 30px rgba(0,0,0,0.25)";
-
-  const pageWidth =
-    site.page_width === "compact"
+  const pageWidth = hasCustomLayout
+    ? site.page_width === "compact"
+      ? "640px"
+      : site.page_width === "wide"
+        ? "1100px"
+        : "900px"
+    : site.page_width === "compact"
       ? "360px"
       : site.page_width === "wide"
-      ? "620px"
-      : "480px";
-
-  const spacingClass =
-    site.spacing === "tight"
-      ? "space-y-2"
-      : site.spacing === "loose"
-      ? "space-y-5"
-      : "space-y-3";
+        ? "620px"
+        : "480px";
 
   const backgroundType = site.background_type || "solid";
   const backgroundColor = site.background_color || "#000000";
@@ -420,18 +565,35 @@ export default async function PublicProfile({ params }: Props) {
     headerPosition === "left"
       ? "items-start text-left"
       : headerPosition === "right"
-      ? "items-end text-right"
-      : "items-center text-center";
+        ? "items-end text-right"
+        : "items-center text-center";
+
+  const gap =
+    site.spacing === "tight"
+      ? "8px"
+      : site.spacing === "loose"
+        ? "20px"
+        : "12px";
 
   return (
     <main
-      className="relative min-h-screen w-full overflow-x-hidden"
+      className="mp-public-page relative min-h-screen w-full overflow-x-hidden"
       style={{
         ...backgroundStyle,
         fontFamily: site.font || "Inter",
         color: textColor,
       }}
     >
+      <PageViewTracker siteId={site.id} />
+
+      {getFaviconUrl(site) && (
+        <>
+          <link rel="icon" href={getFaviconUrl(site)} />
+          <link rel="shortcut icon" href={getFaviconUrl(site)} />
+          <link rel="apple-touch-icon" href={getFaviconUrl(site)} />
+        </>
+      )}
+
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -439,18 +601,136 @@ export default async function PublicProfile({ params }: Props) {
         }}
       />
 
+      <style>{`
+        .musepage-grid {
+          display: grid;
+          grid-template-columns: repeat(12, minmax(0, 1fr));
+          grid-auto-rows: minmax(28px, auto);
+          gap: ${gap};
+          align-items: start;
+        }
+
+        .musepage-grid-item {
+          grid-column: 1 / -1;
+          grid-row: auto;
+          min-width: 0;
+          opacity: 0;
+          transform: translateY(16px);
+          animation: mpGridItemIn 620ms cubic-bezier(.2,.7,.2,1) forwards;
+        }
+
+        ${positionedBlocks
+          .map(
+            (_, index) => `
+          .musepage-grid-item:nth-child(${index + 1}) {
+            animation-delay: ${Math.min(index * 65, 420)}ms;
+          }
+        `
+          )
+          .join("")}
+
+        @keyframes mpHeaderIn {
+          from {
+            opacity: 0;
+            transform: translateY(18px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes mpGridItemIn {
+          from {
+            opacity: 0;
+            transform: translateY(16px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .mp-public-header {
+          opacity: 0;
+          transform: translateY(18px);
+          animation: mpHeaderIn 680ms cubic-bezier(.2,.7,.2,1) 100ms forwards;
+        }
+
+        .mp-public-socials {
+          opacity: 0;
+          transform: translateY(14px);
+          animation: mpHeaderIn 620ms cubic-bezier(.2,.7,.2,1) 220ms forwards;
+        }
+
+        .mp-public-social-icon {
+          position: relative;
+          overflow: hidden;
+          isolation: isolate;
+        }
+
+        .mp-public-social-icon::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          z-index: -1;
+          border-radius: inherit;
+          background:
+            radial-gradient(circle at 30% 20%, rgba(255,255,255,.25), transparent 45%);
+          opacity: .55;
+        }
+
+        .mp-public-footer {
+          opacity: 0;
+          animation: mpHeaderIn 500ms ease 520ms forwards;
+        }
+
+        @media (min-width: 640px) {
+          .musepage-grid-item {
+            grid-column:
+              calc(var(--mp-grid-x) + 1) /
+              span var(--mp-grid-width);
+            grid-row:
+              calc(var(--mp-grid-y) + 1) /
+              span var(--mp-grid-height);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .mp-public-header,
+          .mp-public-socials,
+          .mp-public-footer,
+          .musepage-grid-item {
+            opacity: 1 !important;
+            transform: none !important;
+            animation: none !important;
+          }
+        }
+      `}</style>
+
       <div
         className="pointer-events-none fixed inset-0 z-0"
         style={{
           background:
             backgroundType === "image"
-              ? "radial-gradient(circle at top, rgba(255,255,255,0.06), transparent 40%)"
-              : "radial-gradient(circle at top, rgba(255,255,255,0.035), transparent 45%)",
+              ? "radial-gradient(circle at top, rgba(255,255,255,0.08), transparent 40%)"
+              : "radial-gradient(circle at top, rgba(255,255,255,0.055), transparent 46%)",
         }}
       />
 
       <div
-        className="relative z-10 mx-auto min-h-screen w-full"
+        className="pointer-events-none fixed inset-0 z-0 opacity-[0.28]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px)",
+          backgroundSize: "44px 44px",
+          maskImage:
+            "radial-gradient(circle at top, black 0%, transparent 72%)",
+        }}
+      />
+
+      <div
+        className="relative z-10 mx-auto min-h-screen w-full transition-[max-width] duration-300"
         style={{ maxWidth: pageWidth }}
       >
         <div
@@ -458,35 +738,61 @@ export default async function PublicProfile({ params }: Props) {
             site.spacing === "loose"
               ? "py-16"
               : site.spacing === "tight"
-              ? "py-8"
-              : "py-12"
+                ? "py-8"
+                : "py-12"
           }`}
         >
-          <div className={`flex w-full flex-col ${headerAlignment}`}>
+          <div
+            className={`mp-public-header flex w-full flex-col ${headerAlignment}`}
+          >
             <div className="relative">
+              <div
+                className="pointer-events-none absolute inset-[-14px] rounded-full opacity-25 blur-2xl"
+                style={{
+                  backgroundColor:
+                    site.button_color || "rgba(255,255,255,.18)",
+                }}
+              />
+
               {site.avatar_url ? (
                 <img
                   src={site.avatar_url}
                   alt={site.username}
-                  className="h-24 w-24 rounded-full object-cover shadow-2xl ring-2 ring-white/10 transition duration-300 hover:scale-105"
+                  className="relative h-24 w-24 rounded-full object-cover shadow-2xl ring-1 ring-white/20 transition duration-300 hover:scale-[1.03]"
                 />
               ) : (
-                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white/10 text-3xl shadow-2xl ring-2 ring-white/10 backdrop-blur-xl">
-                  👤
+                <div className="relative flex h-24 w-24 items-center justify-center rounded-full border border-white/15 bg-white/10 text-3xl shadow-2xl backdrop-blur-xl">
+                  {(site.username?.trim()?.[0] || "M").toUpperCase()}
                 </div>
               )}
             </div>
 
-            <h1
-              className="mt-5 text-2xl font-bold tracking-tight"
-              style={{ color: textColor }}
+            <div
+              className={`mt-5 flex items-center gap-2 max-w-full ${
+                headerPosition === "left"
+                  ? "justify-start"
+                  : headerPosition === "right"
+                    ? "justify-end"
+                    : "justify-center"
+              }`}
             >
-              @{site.username}
-            </h1>
+              <h1
+                className="text-2xl font-bold tracking-[-0.02em] break-words truncate max-w-full"
+                style={{ color: textColor }}
+              >
+                @{site.username}
+              </h1>
+
+              <span
+                aria-hidden="true"
+                className="h-1.5 w-1.5 rounded-full opacity-55"
+                style={{ backgroundColor: textColor }}
+              />
+            </div>
 
             {site.bio && (
               <p
-                className={`mt-3 max-w-md text-sm leading-6 opacity-75 ${
+                className={`mt-3 max-w-md text-sm leading-6 opacity-75 break-words ${
                   headerPosition === "center" ? "text-center" : ""
                 }`}
                 style={{ color: textColor }}
@@ -502,12 +808,12 @@ export default async function PublicProfile({ params }: Props) {
 
           {(site.instagram_url || site.youtube_url || site.x_url) && (
             <div
-              className={`mt-7 flex items-center gap-3 ${
+              className={`mp-public-socials mt-7 flex items-center gap-3 ${
                 headerPosition === "left"
                   ? "justify-start"
                   : headerPosition === "right"
-                  ? "justify-end"
-                  : "justify-center"
+                    ? "justify-end"
+                    : "justify-center"
               }`}
             >
               {site.instagram_url && (
@@ -516,7 +822,7 @@ export default async function PublicProfile({ params }: Props) {
                   platform="instagram"
                   url={site.instagram_url}
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 backdrop-blur-xl transition duration-200 hover:-translate-y-1 hover:bg-white/20">
+                  <div className="mp-public-social-icon flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/10 backdrop-blur-xl transition duration-200 hover:-translate-y-1 hover:bg-white/20 hover:shadow-lg">
                     <FaInstagram size={20} />
                   </div>
                 </SocialAnalyticsLink>
@@ -528,7 +834,7 @@ export default async function PublicProfile({ params }: Props) {
                   platform="youtube"
                   url={site.youtube_url}
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 backdrop-blur-xl transition duration-200 hover:-translate-y-1 hover:bg-white/20">
+                  <div className="mp-public-social-icon flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/10 backdrop-blur-xl transition duration-200 hover:-translate-y-1 hover:bg-white/20 hover:shadow-lg">
                     <FaYoutube size={20} />
                   </div>
                 </SocialAnalyticsLink>
@@ -540,7 +846,7 @@ export default async function PublicProfile({ params }: Props) {
                   platform="x"
                   url={site.x_url}
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 backdrop-blur-xl transition duration-200 hover:-translate-y-1 hover:bg-white/20">
+                  <div className="mp-public-social-icon flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/10 backdrop-blur-xl transition duration-200 hover:-translate-y-1 hover:bg-white/20 hover:shadow-lg">
                     <svg
                       width="18"
                       height="18"
@@ -556,44 +862,59 @@ export default async function PublicProfile({ params }: Props) {
             </div>
           )}
 
-          <div className={`mt-9 w-full ${spacingClass}`}>
-            {visibleBlocks.map((block) => (
-              <PublicBlock
-                key={block.id}
-                block={block}
-                siteId={site.id}
-                username={site.username}
-                buttonColor={site.button_color || "#ffffff"}
-                buttonTextColor={site.button_text_color || "#000000"}
-                buttonStyle={site.button_style || "rounded"}
-                buttonShadow={site.button_shadow !== false}
-              />
-            ))}
-
-            {visibleBlocks.length === 0 && (
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-5 py-10 text-center backdrop-blur-xl">
-                <p
-                  className="text-sm opacity-50"
-                  style={{ color: textColor }}
+          <div className="mt-9 w-full">
+            <div className="musepage-grid">
+              {positionedBlocks.map((block) => (
+                <div
+                  key={block.id}
+                  className="musepage-grid-item"
+                  style={
+                    {
+                      "--mp-grid-x": block.resolved_x,
+                      "--mp-grid-y": block.resolved_y,
+                      "--mp-grid-width": block.resolved_width,
+                      "--mp-grid-height": block.resolved_height,
+                    } as CSSProperties
+                  }
                 >
-                  No links available right now.
-                </p>
-              </div>
-            )}
+                  <PublicBlock
+                    block={block}
+                    siteId={site.id}
+                    username={site.username}
+                    buttonColor={site.button_color || "#ffffff"}
+                    buttonTextColor={site.button_text_color || "#000000"}
+                    buttonStyle={site.button_style || "rounded"}
+                    buttonShadow={site.button_shadow !== false}
+                  />
+                </div>
+              ))}
+
+              {positionedBlocks.length === 0 && (
+                <div className="col-span-12 rounded-2xl border border-white/10 bg-white/5 px-5 py-10 text-center backdrop-blur-xl">
+                  <p
+                    className="text-sm opacity-50"
+                    style={{ color: textColor }}
+                  >
+                    No links available right now.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="mt-14 pb-5 text-center">
-            <p
-              className="text-[11px] font-medium tracking-wide opacity-40"
+          <div className="mp-public-footer mt-auto pt-14 pb-5 text-center">
+            <div
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-2 opacity-55 backdrop-blur-xl transition hover:opacity-80"
               style={{ color: textColor }}
             >
-              Powered by MusePage
-            </p>
+              <MusePageLogo href="/" compact iconSize={17} />
+              <span className="text-[10px] font-medium tracking-wide">
+                Made with MusePage
+              </span>
+            </div>
           </div>
         </div>
       </div>
     </main>
   );
 }
-
-

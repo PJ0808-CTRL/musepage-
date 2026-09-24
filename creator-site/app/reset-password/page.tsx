@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import MusePageLogo from "@/app/components/MusePageLogo";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -107,14 +108,12 @@ export default function ResetPasswordPage() {
 
   return (
     <main className="min-h-screen bg-[#080808] text-white">
-      <div className="flex min-h-screen items-center justify-center px-6 py-12">
+      <div className="flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
         <div className="w-full max-w-md">
           <div className="mb-8 text-center">
-            <Link href="/" className="text-2xl font-bold tracking-tight">
-              YourBrand
-            </Link>
+            <MusePageLogo iconSize={44} className="justify-center" />
 
-            <h1 className="mt-8 text-3xl font-bold tracking-tight">
+            <h1 className="mt-8 text-2xl sm:text-3xl font-bold tracking-tight">
               Choose a new password
             </h1>
 
@@ -123,7 +122,7 @@ export default function ResetPasswordPage() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 shadow-2xl">
             {complete ? (
               <div className="text-center">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 text-2xl">
@@ -184,7 +183,7 @@ export default function ResetPasswordPage() {
                     required
                     autoComplete="new-password"
                     disabled={loading}
-                    className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 outline-none transition placeholder:text-gray-600 focus:border-violet-500 disabled:opacity-50"
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-base sm:text-sm outline-none transition placeholder:text-gray-600 focus:border-violet-500 disabled:opacity-50"
                   />
 
                   <p className="mt-2 text-xs text-gray-600">
@@ -208,7 +207,7 @@ export default function ResetPasswordPage() {
                     required
                     autoComplete="new-password"
                     disabled={loading}
-                    className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 outline-none transition placeholder:text-gray-600 focus:border-violet-500 disabled:opacity-50"
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-base sm:text-sm outline-none transition placeholder:text-gray-600 focus:border-violet-500 disabled:opacity-50"
                   />
                 </div>
 

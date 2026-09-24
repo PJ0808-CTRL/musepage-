@@ -42,12 +42,12 @@ export default function ForgotPasswordPage() {
 
   return (
     <main className="min-h-screen bg-[#080808] text-white">
-      <div className="flex min-h-screen items-center justify-center px-6 py-12">
+      <div className="flex min-h-screen items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
         <div className="w-full max-w-md">
           <div className="mb-8 text-center">
             <MusePageLogo iconSize={44} className="justify-center" />
 
-            <h1 className="mt-8 text-3xl font-bold tracking-tight">
+            <h1 className="mt-8 text-2xl sm:text-3xl font-bold tracking-tight">
               Reset your password
             </h1>
 
@@ -56,7 +56,7 @@ export default function ForgotPasswordPage() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 shadow-2xl">
             {sent ? (
               <div className="text-center">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 text-2xl">
@@ -69,7 +69,7 @@ export default function ForgotPasswordPage() {
 
                 <p className="mt-2 text-sm leading-6 text-gray-500">
                   If an account exists for{" "}
-                  <span className="text-gray-300">{email}</span>, you&apos;ll
+                  <span className="break-all text-gray-300">{email}</span>, you&apos;ll
                   receive a password reset link shortly.
                 </p>
 
@@ -96,7 +96,7 @@ export default function ForgotPasswordPage() {
                     required
                     autoComplete="email"
                     disabled={loading}
-                    className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 outline-none transition placeholder:text-gray-600 focus:border-violet-500 disabled:opacity-50"
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-base sm:text-sm outline-none transition placeholder:text-gray-600 focus:border-violet-500 disabled:opacity-50"
                   />
                 </div>
 
